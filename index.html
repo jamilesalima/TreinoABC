@@ -152,6 +152,28 @@ a.btn{text-decoration:none}
 .copies li{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
 .copies li:first-child{border-top:0}
 .copies small{display:block;color:var(--muted);font-size:13px}
+
+/* estado do exercício e treino de hoje x anterior */
+.ex{position:relative;transition:background .2s}
+.ex.done{background:color-mix(in srgb,var(--plate) 8%,var(--card))}
+.ex.done::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--plate)}
+.stt{margin-left:auto;font-size:12px;font-weight:700;padding:3px 11px;border-radius:999px;border:1px solid var(--line2);color:var(--muted);white-space:nowrap}
+.ex.partial .stt{border-color:var(--B);color:var(--ink)}
+.ex.done .stt{background:var(--plate);border-color:var(--plate);color:var(--on-plate)}
+.prog{margin:0 0 14px}
+.progtxt{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:13px;color:var(--muted)}
+.progtxt strong{color:var(--ink);font-weight:700;font-size:14px}
+.progbar{height:6px;border-radius:3px;background:var(--line);margin-top:8px;overflow:hidden}
+.progbar i{display:block;height:100%;background:var(--plate);border-radius:3px;transition:width .25s}
+.prev{border:1px dashed var(--line2);background:transparent}
+.prevlbl{text-transform:uppercase;letter-spacing:.05em;font-size:11px}
+.prevval{color:var(--muted);font-weight:500}
+.todaylbl{margin-top:16px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--plate)}
+.todaylbl+.loadrow{margin-top:8px}
+.loadin input::placeholder,.set input::placeholder{color:var(--line2);opacity:1}
+.loadin input:not(:placeholder-shown){font-weight:600;color:var(--ink)}
+.loadin:has(input:not(:placeholder-shown)){border-color:var(--plate)}
+.set input:not(:placeholder-shown){background:color-mix(in srgb,var(--plate) 14%,var(--card));border-color:var(--plate);font-weight:700;color:var(--ink)}
 .chips.filt{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;margin-top:22px}
 .chips.filt .chip{min-width:0;padding:0}
 .chiphint{font-size:12px;color:var(--muted);margin-top:8px}
@@ -820,34 +842,65 @@ function saveBarHTML() {
 }
 function updateSaveBar() { const el = $('#savebar'); if (el) el.outerHTML = saveBarHTML(); }
 
+const ST_LABEL = { pending: 'A fazer', partial: 'Incompleto', done: '✓ Feito' };
+function exState(ex) {
+  const e = draft.entries[ex.id];
+  if (!e) return 'pending';
+  const hasLoad = String(e.load).trim() !== '';
+  const hasReps = e.reps.some(r => String(r).trim() !== '');
+  const any = hasLoad || hasReps || e.rir !== '' || e.pain.trim() || e.notes.trim();
+  const lf = lastFor(ex.name);
+  const needsLoad = !(lf && lf.entry.load == null);
+  if (hasReps && (hasLoad || !needsLoad)) return 'done';
+  return any ? 'partial' : 'pending';
+}
+function progressHTML() {
+  const list = currentExercises();
+  const n = list.length;
+  const d = list.filter(ex => exState(ex) === 'done').length;
+  const pct = n ? Math.round(d / n * 100) : 0;
+  return `<div class="prog" id="prog"><div class="progtxt"><strong>${d} de ${n} ${n === 1 ? 'feito' : 'feitos'}</strong><span>${d === n && n ? 'Treino completo. Pode salvar.' : (n - d) + (n - d === 1 ? ' falta fazer' : ' faltam fazer')}</span></div><div class="progbar" role="progressbar" aria-valuemin="0" aria-valuemax="${n}" aria-valuenow="${d}"><i style="width:${pct}%"></i></div></div>`;
+}
+function updateCardState(id) {
+  const ex = currentExercises().find(x => x.id === id);
+  const sec = $(`[data-ex="${id}"]`);
+  if (!ex || !sec) return;
+  const st = exState(ex);
+  sec.classList.remove('pending', 'partial', 'done');
+  sec.classList.add(st);
+  const t = sec.querySelector('.stt');
+  if (t) t.textContent = ST_LABEL[st];
+  const pr = $('#prog');
+  if (pr) pr.outerHTML = progressHTML();
+}
 function exCard(ex, extra) {
   const e = entryFor(ex.id);
   const lf = lastFor(ex.name);
-  const lastLoad = lf && lf.entry.load != null ? fmt(lf.entry.load) : '0';
-  const lastReps = lf ? lf.entry.reps : [];
+  const st = exState(ex);
   let hint;
   if (lf) {
     const le = lf.entry;
     const reps = (le.reps || []).length ? le.reps.join(' / ') + ' reps' : '';
     const val = [le.load != null ? `${fmt(le.load)} kg` : '', reps].filter(Boolean).join(' × ');
     const extras = [le.rir != null ? `RIR ${le.rir}` : '', le.pain ? `dor: ${le.pain}` : '', le.notes ? le.notes : ''].filter(Boolean).join('. ');
-    hint = `<div class="prev"><div class="prevtxt"><span class="prevlbl">Último treino, ${fmtShort(lf.session.date)}</span><span class="prevval">${esc(val) || 'sem carga registrada'}</span>${extras ? `<span class="prevnote">${esc(extras)}</span>` : ''}</div><button class="btn sm" data-a="use-last" data-id="${ex.id}" aria-label="Repetir carga e repetições do último treino de ${esc(ex.name)}">Repetir</button></div>`;
+    hint = `<div class="prev"><div class="prevtxt"><span class="prevlbl">Último treino · ${fmtShort(lf.session.date)}</span><span class="prevval">${esc(val) || 'sem carga registrada'}</span>${extras ? `<span class="prevnote">${esc(extras)}</span>` : ''}</div><button class="btn sm" data-a="use-last" data-id="${ex.id}" aria-label="Repetir carga e repetições do último treino de ${esc(ex.name)}">Repetir</button></div>`;
   } else {
     hint = `<div class="prev none"><span class="prevlbl">Primeiro registro deste exercício</span></div>`;
   }
-  const sets = e.reps.map((v, i) => `<label class="set"><span>Série ${i + 1}</span><input inputmode="numeric" autocomplete="off" data-f="rep" data-id="${ex.id}" data-i="${i}" value="${esc(v)}" placeholder="${lastReps[i] != null ? lastReps[i] : '0'}" aria-label="Repetições da série ${i + 1}, ${esc(ex.name)}"></label>`).join('');
+  const sets = e.reps.map((v, i) => `<label class="set"><span>Série ${i + 1}</span><input inputmode="numeric" autocomplete="off" data-f="rep" data-id="${ex.id}" data-i="${i}" value="${esc(v)}" placeholder="–" aria-label="Repetições da série ${i + 1}, ${esc(ex.name)}"></label>`).join('');
   const details = e.open ? `<div class="details">
       <div><label>RIR final</label><div class="chips" role="group" aria-label="RIR final">${[0, 1, 2, 3, 4].map(v => `<button class="chip ${e.rir === String(v) ? 'on' : ''}" data-a="rir" data-id="${ex.id}" data-v="${v}" aria-pressed="${e.rir === String(v)}">${v}</button>`).join('')}</div>
       <p class="chiphint">Quantas repetições ainda sobravam ao terminar.</p></div>
       <label>Dor ou sintomas<input data-f="pain" data-id="${ex.id}" value="${esc(e.pain)}" autocomplete="off"></label>
       <label>Observações<textarea rows="2" data-f="notes" data-id="${ex.id}">${esc(e.notes)}</textarea></label>
     </div>` : '';
-  return `<section class="ex" data-ex="${ex.id}">
-    <div class="exh"><h3>${esc(ex.name)}</h3>${extra ? '<span class="tag">fora do treino atual</span>' : ''}</div>
+  return `<section class="ex ${st}" data-ex="${ex.id}">
+    <div class="exh"><h3>${esc(ex.name)}</h3>${extra ? '<span class="tag">fora do treino atual</span>' : ''}<span class="stt" aria-live="polite">${ST_LABEL[st]}</span></div>
     ${hint}
+    <div class="todaylbl">Hoje</div>
     <div class="loadrow">
       <button class="step" data-a="step" data-id="${ex.id}" data-d="-2.5" aria-label="Diminuir 2,5 kg">−</button>
-      <label class="loadin"><input inputmode="decimal" autocomplete="off" data-f="load" data-id="${ex.id}" value="${esc(e.load)}" placeholder="${lastLoad}" aria-label="Carga em kg, ${esc(ex.name)}"><span>kg</span></label>
+      <label class="loadin"><input inputmode="decimal" autocomplete="off" data-f="load" data-id="${ex.id}" value="${esc(e.load)}" placeholder="–" aria-label="Carga em kg, ${esc(ex.name)}"><span>kg</span></label>
       <button class="step" data-a="step" data-id="${ex.id}" data-d="2.5" aria-label="Aumentar 2,5 kg">+</button>
     </div>
     <div class="sets">${sets}
@@ -881,7 +934,7 @@ function logHTML() {
     body = `<div class="exlist">${R.exercises.map(ex => exCard(ex, false)).join('') + (draft.extra || []).map(ex => exCard(ex, true)).join('')}</div>`;
     if (!R.exercises.length && !(draft.extra || []).length) body = `<div class="empty"><p>Este treino está sem exercícios.</p><button class="btn solid" data-a="toggle-edit">Adicionar exercícios</button></div>`;
   }
-  return picker + banner + dateField + bar + body;
+  return picker + banner + dateField + bar + (ui.edit ? '' : progressHTML()) + body;
 }
 
 /* ───────── aba Histórico ───────── */
@@ -1366,7 +1419,7 @@ function act(a, t) {
       e.load = String(v).replace('.', ',');
       const inp = $(`[data-f="load"][data-id="${id}"]`);
       if (inp) { inp.value = e.load; inp.classList.remove('bad'); }
-      updateSaveBar(); queueDraftSave();
+      updateSaveBar(); updateCardState(id); queueDraftSave();
       break;
     }
     case 'add-set': entryFor(id).reps.push(''); ui.focus = `[data-f="rep"][data-id="${id}"][data-i="${entryFor(id).reps.length - 1}"]`; queueDraftSave(); render(); break;
@@ -1433,7 +1486,7 @@ document.addEventListener('input', e => {
   else if (f === 'pain') en.pain = t.value;
   else if (f === 'notes') en.notes = t.value;
   t.classList.remove('bad');
-  updateSaveBar(); queueDraftSave();
+  updateSaveBar(); updateCardState(t.dataset.id); queueDraftSave();
 });
 document.addEventListener('change', e => {
   const t = e.target;
